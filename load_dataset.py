@@ -15,6 +15,9 @@ def load_dataset(filename):
     # load any of our datasets from a csv file using pandas
     assert filename in ["rated_papers.csv", "implicit_interactions.csv", "abstract_sentences.csv"], 'Options for filenames are: "rated_papers.csv" or "implicit_interactions.csv" or "abstract_sentences.csv"'
     df = pd.read_csv('data/' + filename)
+    # convert arxiv_id to string
+    if 'arxiv_id' in df.columns:
+        df['arxiv_id'] = df['arxiv_id'].astype(str)
     # Clean arxiv_id if needed
     if 'arxiv_id' in df.columns:
         df['arxiv_id'] = df['arxiv_id'].apply(clean_arxiv_id)
