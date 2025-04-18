@@ -90,3 +90,40 @@ plot_pie_chart(arxiv_distribution, "arXiv Category Distribution (Original Datase
 
 # Plot distribution of the Kaggle dataset
 plot_pie_chart(df_kaggle_distribution, "arXiv Category Distribution (Kaggle Dataset)")
+
+#Create Classes
+class User:  #build-in function to create a class named User
+    def __init__(self, arxiv_id):
+        self.arxiv_id = arxiv_id
+#Constructor that creates a new user object 
+#that saves the arxiv_id value into the object
+
+
+user_ids = df_kaggle['arxiv_id']
+#Grabs the arxiv_id column from the dataframe 
+
+
+#users = [User(arxiv_id) for arxiv_id in user_ids]
+#Create a User object for every arxiv_id in user_ids and
+#collect them into a list called users.
+
+
+ 
+        
+
+
+
+   
+
+
+
+
+
+
+
+
+
+
+
+
+
