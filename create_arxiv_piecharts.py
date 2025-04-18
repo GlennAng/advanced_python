@@ -1,7 +1,7 @@
 from load_dataset import load_dataset
 import pandas as pd
 import pickle
-
+import matplotlib.pyplot as plt
 
 def convert_arxiv_category(category : str) -> str:
     """
@@ -77,6 +77,16 @@ if __name__ == '__main__':
     df_kaggle_distribution = get_arxiv_distribution(df_kaggle)
     print(df_kaggle_distribution)
 
-"""
-TO_DO: PIE CHARTS OF THESE TWO DISTRIBUTIONS
-"""
+ 
+def plot_pie_chart(distribution: pd.Series, title: str):
+    plt.figure(figsize=(8, 8))
+    plt.pie(distribution, labels=distribution.index, autopct='%1.1f%%', startangle=140)
+    plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+    plt.title(title)
+    plt.show()
+
+# Plot distribution of the original dataset
+plot_pie_chart(arxiv_distribution, "arXiv Category Distribution (Original Dataset)")
+
+# Plot distribution of the Kaggle dataset
+plot_pie_chart(df_kaggle_distribution, "arXiv Category Distribution (Kaggle Dataset)")
