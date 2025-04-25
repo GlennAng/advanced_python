@@ -119,3 +119,58 @@ if __name__ == "__main__":
     get_session_ids(rated_papers, global_min_date)
     sessions_df = create_sessions_df(rated_papers)
     
+    
+    
+#Create a class for the users with attribute of users_id #build-in function to create a class named User
+        
+class User:
+    def __init__(self, user_id, positive_papers=None, negative_papers=None):
+        # This is the unique identifier for the user
+        self.user_id = user_id
+        
+        # These are the papers the user has upvoted (positive interaction)
+        # If nothing is passed in, use an empty list
+        self.positive_papers = positive_papers or []
+        
+        # These are the papers the user has downvoted (negative interaction)
+        # Again, default to empty list if none provided
+        self.negative_papers = negative_papers or []
+
+    def count_upvotes(self):
+        # Count how many positive papers the user has (i.e., number of upvotes)
+        return len(self.positive_papers)
+
+    def count_downvotes(self):
+        # Count how many negative papers the user has (i.e., number of downvotes)
+        return len(self.negative_papers)
+
+    def __repr__(self):
+        # This is what will print when you display the user object
+        # Useful for debugging or summaries
+        return f"User(user_id={self.user_id}, upvotes={self.count_upvotes()}, downvotes={self.count_downvotes()})"
+
+   
+users = []  # Create an empty list to store all user objects
+
+# Loop through each row in the sessions_id table (your DataFrame)
+for _, row in sessions_df.iterrows():
+    # Create a new User object using data from the row
+    user = User(
+        user_id=row['user_id'],                           # ID of the user
+        positive_papers=row['positive_papers'],        # List of upvoted paper IDs
+        negative_papers=row['negative_papers']         # List of downvoted paper IDs
+    )
+    
+    # Add this user to the users list
+    users.append(user)    
+    
+    # Print the second user object (shows ID, upvotes, downvotes)
+print(users[1])
+
+# Print just their upvoted paper list
+print(users[1].positive_papers)
+
+# Print how many papers they upvoted
+print(users[1].count_upvotes())
+
+ 
