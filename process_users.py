@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 pd.set_option('display.max_rows', None)  # Show all rows when displaying DataFrames
 import logging
+import os
+from collections import defaultdict
 
 # Configure logging
 logging.basicConfig(filename = 'data_processing.log', filemode = 'w', format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s', level = logging.INFO)
@@ -19,6 +21,13 @@ def transform_dates(rated_papers : pd.DataFrame) -> None:
     result = pd.to_datetime(rated_papers["time"], format="%Y-%m-%d %H:%M:%S", errors="coerce")
     # Identify the rows for which it failed even through the date is not missing
     mask = result.isna() & ~rated_papers["time"].isna()  # the tilde means boolean NOT (the rows where null after conversion but not before)
+    
+    # Log invalid date entries
+    invalid_dates = rated_papers.loc[mask, "time"]
+    if not invalid_dates.empty:
+        logger.warning(f"Invalid date entries found: {invalid_dates.tolist()}")
+    
+    
     # Second format: with microseconds (in those problematic cases)
     result.loc[mask] = pd.to_datetime(rated_papers.loc[mask, "time"], format="%Y-%m-%d %H:%M:%S.%f", errors="coerce")
     rated_papers["time"] = result
@@ -90,7 +99,7 @@ def create_sessions_df(rated_papers: pd.DataFrame) -> pd.DataFrame:
     sessions_df = sessions_df.merge(negative_papers_column, on = ['user_id', 'session_id'], how = 'left')
 
     logger.info(f"Rated Papers DataFrame Sample for User 0:\n{rated_papers[rated_papers['user_id'] == 0]}")
-    logger.info(f"Sessions DataFrame Sample for User 0 without History:\n{sessions_df[sessions_df["user_id"] == 0]}")
+    logger.info(f"Sessions DataFrame Sample for User 0 without History:\n{sessions_df[sessions_df['user_id'] == 0]}")
 
     sessions_df['history'] = sessions_df.apply(lambda row: get_history_for_session(rated_papers, row['user_id'], row['session_id']), axis=1)
     logger.info(f"Sessions DataFrame Sample for User 0 with History:\n{sessions_df[sessions_df['user_id'] == 0]}")
@@ -103,28 +112,52 @@ def create_sessions_df(rated_papers: pd.DataFrame) -> pd.DataFrame:
 
 if __name__ == "__main__":
     logger.info("Starting data processing...")
-    # Load the dataset containing explicit user feedback
-    rated_papers = load_dataset("rated_papers.csv")
-    logger.info(f"Dataset sample:\n{rated_papers.head()}")
-    # 4 columns arxiv_id | user_id | rating | time
-    user_ids = rated_papers["user_id"].unique().tolist()  # unique user ids (duplicates in case they rated multiple papers)
-    n_ratings, n_users = rated_papers.shape[0], len(user_ids)
-    logger.info(f"Number of Ratings: {n_ratings}, Number of Users: {n_users}.")  # 774K ratings, 13352 users
-    transform_dates(rated_papers)
-    # find the min date across all users to fill the missing dates but lower it by 1 year to not be counted to the same session
-    global_min_date = rated_papers["time"].min() - pd.DateOffset(years = 1)
-    logger.info(f"Global Min Date across all Users lowered by 1 year: {global_min_date}.")  # 2021-07-06 08:27:24.
-    fill_missing_dates(rated_papers, global_min_date)
-    # Group into sessions
-    get_session_ids(rated_papers, global_min_date)
-    sessions_df = create_sessions_df(rated_papers)
+
+    # Wenn Cache existiert, direkt laden:
+    if os.path.exists("cached_sessions_df.pkl"):
+        logger.info("Loading sessions_df from cache...")
+        sessions_df = pd.read_pickle("cached_sessions_df.pkl")
+    else:
+        logger.info("Cache not found. Processing from scratch...")
+        rated_papers = load_dataset("rated_papers.csv")
+        logger.info(f"Dataset sample:\n{rated_papers.head()}")
+
+        user_ids = rated_papers["user_id"].unique().tolist()
+        n_ratings, n_users = rated_papers.shape[0], len(user_ids)
+        logger.info(f"Number of Ratings: {n_ratings}, Number of Users: {n_users}.")
+
+        transform_dates(rated_papers)
+        
+        global_min_date = rated_papers["time"].min() - pd.DateOffset(years=1)
+        logger.info(f"Global Min Date across all Users lowered by 1 year: {global_min_date}.")
+
+        fill_missing_dates(rated_papers, global_min_date)
+
+        get_session_ids(rated_papers, global_min_date)
+
+        sessions_df = create_sessions_df(rated_papers)
+        sessions_df.to_pickle("cached_sessions_df.pkl")
+        logger.info("Cached sessions_df saved.")
     
+if os.path.exists("cached_first_interactions.pkl"):
+    logger.info("Loading first_interactions from cache...")
+    first_interactions = pd.read_pickle("cached_first_interactions.pkl")
+else:
+    logger.info("Calculating first_interactions...")
+    # Ensure 'time' is properly converted to datetime before calculating first interactions
+    rated_papers["time"] = pd.to_datetime(rated_papers["time"], errors="coerce")
+    # Drop rows where 'time' could not be converted (e.g., NaT values)
+    rated_papers = rated_papers.dropna(subset=["time"])
+    first_interactions = rated_papers.groupby('user_id')['time'].min().to_dict()
+    # Cache first_interactions
+    pd.to_pickle(first_interactions, "cached_first_interactions.pkl")
+    logger.info("Cached first_interactions saved.")
     
-    
+  
 #Create a class for the users with attribute of users_id #build-in function to create a class named User
         
 class User:
-    def __init__(self, user_id, positive_papers=None, negative_papers=None):
+    def __init__(self, user_id, positive_papers=None, negative_papers=None, first_interaction=None):
         # This is the unique identifier for the user
         self.user_id = user_id
         
@@ -135,6 +168,9 @@ class User:
         # These are the papers the user has downvoted (negative interaction)
         # Again, default to empty list if none provided
         self.negative_papers = negative_papers or []
+
+        #The date when the user interacted the first time
+        self.first_interaction = first_interaction or []
 
     def count_upvotes(self):
         # Count how many positive papers the user has (i.e., number of upvotes)
@@ -147,30 +183,66 @@ class User:
     def __repr__(self):
         # This is what will print when you display the user object
         # Useful for debugging or summaries
-        return f"User(user_id={self.user_id}, upvotes={self.count_upvotes()}, downvotes={self.count_downvotes()})"
-
-   
-users = []  # Create an empty list to store all user objects
-
-# Loop through each row in the sessions_id table (your DataFrame)
-for _, row in sessions_df.iterrows():
-    # Create a new User object using data from the row
-    user = User(
-        user_id=row['user_id'],                           # ID of the user
-        positive_papers=row['positive_papers'],        # List of upvoted paper IDs
-        negative_papers=row['negative_papers']         # List of downvoted paper IDs
-    )
-    
-    # Add this user to the users list
-    users.append(user)    
-    
-    # Print the second user object (shows ID, upvotes, downvotes)
-print(users[1])
-
-# Print just their upvoted paper list
-print(users[1].positive_papers)
-
-# Print how many papers they upvoted
-print(users[1].count_upvotes())
+        return (f"User(user_id={self.user_id}, upvotes={self.count_upvotes()}, "
+                f"downvotes={self.count_downvotes()}, first_interaction={self.first_interaction})")
 
  
+
+users = []  # Create an empty list to store all user objects
+
+user_dict = defaultdict(lambda: {"positive": [], "negative": []})
+
+
+for _, row in sessions_df.iterrows():
+    user_id = row['user_id']
+
+   
+    if isinstance(row['positive_papers'], str):
+        user_dict[user_id]["positive"].extend(row['positive_papers'].split())
+
+    
+    if isinstance(row['negative_papers'], str):
+        user_dict[user_id]["negative"].extend(row['negative_papers'].split())
+
+# Creating user objects
+users = []
+for user_id, papers in user_dict.items():
+    user = User(
+        user_id=user_id,
+        positive_papers=papers["positive"],
+        negative_papers=papers["negative"],
+        first_interaction=first_interactions.get(user_id)
+    )
+    users.append(user)
+
+
+while True:
+    try:
+        #getting user input
+        u = int(input("Enter the user ID: "))  
+
+        #checking if input is valid
+        if u >= 0 and u < len(users):
+            #length of user list
+            print(f"Length of users list: {len(users)}")
+            print(users[u])
+
+            # Show positive papers
+            print(f"Positive papers of the user: {users[u].positive_papers}")
+
+            # Show negative papers
+            print(f"Negative papers of the user: {users[u].negative_papers}")
+
+            #Number of positive upvotes
+            print(f"Number of papers the user upvoted: {users[u].count_upvotes()}")
+
+            #first date of interaction
+            print(f"User {u} first interacted on: {users[u].first_interaction}")
+            
+            #Break if everything worked
+            break
+        else:
+            print("Please enter a valid ID within the range.")
+
+    except ValueError:
+        print("Please enter a valid integer for the user ID.")
