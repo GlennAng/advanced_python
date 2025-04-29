@@ -37,9 +37,6 @@ class User:
         return (f"User(user_id={self.user_id}, upvotes={self.count_upvotes()}, "
                 f"downvotes={self.count_downvotes()}, first_interaction={self.first_interaction})")
 
-# Configure logging
-logging.basicConfig(filename = 'data_processing.log', filemode = 'w', format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s', level = logging.INFO)
-logger = logging.getLogger('paper_ratings_processor')
 
 def transform_dates(rated_papers : pd.DataFrame) -> None:
     """
@@ -140,25 +137,30 @@ def create_sessions_df(rated_papers: pd.DataFrame) -> pd.DataFrame:
     sessions_df.to_csv("data/sessions.csv", index = False)
     return sessions_df
 
-def process_sessions() -> pd.DataFrame:
+def process_sessions(rated_papers : pd.DataFrame = None, logger = None) -> pd.DataFrame:
     # If the cache already exists (data has been computed before), load it
     # Otherwise, process the data from scratch
     if os.path.exists("cached_sessions_df.pkl"):
-        logger.info("Loading sessions_df from cache...")
+        if logger is not None:
+            logger.info("Loading sessions_df from cache...")
         sessions_df = pd.read_pickle("cached_sessions_df.pkl")
     else:
-        logger.info("Cache not found. Processing from scratch...")
+        if logger is not None:
+            logger.info("Cache not found. Processing from scratch...")
         rated_papers = load_dataset("rated_papers.csv")
-        logger.info(f"Dataset sample:\n{rated_papers.head()}")
+        if logger is not None:
+            logger.info(f"Dataset sample:\n{rated_papers.head()}")
 
         user_ids = rated_papers["user_id"].unique().tolist()
         n_ratings, n_users = rated_papers.shape[0], len(user_ids)
-        logger.info(f"Number of Ratings: {n_ratings}, Number of Users: {n_users}.")
+        if logger is not None:
+            logger.info(f"Number of Ratings: {n_ratings}, Number of Users: {n_users}.")
 
         transform_dates(rated_papers)
         
         global_min_date = rated_papers["time"].min() - pd.DateOffset(years=1)
-        logger.info(f"Global Min Date across all Users lowered by 1 year: {global_min_date}.")
+        if logger is not None:
+            logger.info(f"Global Min Date across all Users lowered by 1 year: {global_min_date}.")
 
         fill_missing_dates(rated_papers, global_min_date)
 
@@ -166,15 +168,18 @@ def process_sessions() -> pd.DataFrame:
 
         sessions_df = create_sessions_df(rated_papers)
         sessions_df.to_pickle("cached_sessions_df.pkl")
-        logger.info("Cached sessions_df saved.")
+        if logger is not None:
+            logger.info("Cached sessions_df saved.")
     return sessions_df
 
-def process_first_interactions(sessions_df : pd.DataFrame) -> dict:
+def process_first_interactions(sessions_df : pd.DataFrame, rated_papers : pd.DataFrame = None, logger = None) -> dict:
     if os.path.exists("cached_first_interactions.pkl"):
-        logger.info("Loading first_interactions from cache...")
+        if logger is not None:
+            logger.info("Loading first_interactions from cache...")
         first_interactions = pd.read_pickle("cached_first_interactions.pkl")
     else:
-        logger.info("Calculating first_interactions...")
+        if logger is not None:
+            logger.info("Calculating first_interactions...")
         # Ensure 'time' is properly converted to datetime before calculating first interactions
         rated_papers["time"] = pd.to_datetime(rated_papers["time"], errors="coerce")
         # Drop rows where 'time' could not be converted (e.g., NaT values)
@@ -182,7 +187,8 @@ def process_first_interactions(sessions_df : pd.DataFrame) -> dict:
         first_interactions = rated_papers.groupby('user_id')['time'].min().to_dict()
         # Cache first_interactions
         pd.to_pickle(first_interactions, "cached_first_interactions.pkl")
-        logger.info("Cached first_interactions saved.")
+        if logger is not None:
+            logger.info("Cached first_interactions saved.")
     return first_interactions
 
 def process_users(sessions_df : pd.DataFrame, first_interactions : dict) -> tuple:
@@ -245,9 +251,62 @@ def print_user_info(users : list, users_ids_to_idxs : dict) -> None:
 
 # Main function to process the data
 if __name__ == "__main__":
+    # Configure logging
+    logging.basicConfig(filename = 'data_processing.log', filemode = 'w', format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s', level = logging.INFO)
+    logger = logging.getLogger('paper_ratings_processor')
     logger.info("Starting data processing...")
-    sessions_df = process_sessions()
-    first_interactions = process_first_interactions(sessions_df)
+
+    rated_papers = load_dataset("rated_papers.csv")
+    sessions_df = process_sessions(rated_papers, logger)
+    first_interactions = process_first_interactions(sessions_df, rated_papers, logger)
     users, users_ids_to_idxs = process_users(sessions_df, first_interactions)
     logger.info("Data processing completed.")
     print_user_info(users, users_ids_to_idxs)
+
+    import statistics
+        #Initialize counters
+    upvotes_tot = 0
+    downvotes_tot = 0
+    users_num = len(users)
+
+    # Loop through each user and sum up upvotes and downvotes
+    for user in users: 
+        upvotes_tot += user.count_upvotes()
+        downvotes_tot += user.count_downvotes()
+
+    # Compute the averages (mean)
+    mean_upvotes = upvotes_tot / users_num
+    mean_downvotes = downvotes_tot / users_num
+
+    # Print the results
+    print(f"Average upvotes per user: {mean_upvotes:.2f}")
+    print(f"Average downvotes per user: {mean_downvotes:.2f}")
+        
+    #Median
+    # Create lists to hold all upvote/downvote 
+    #counts
+    upvote_counts = []
+    downvote_counts = []
+
+    # Loop through each user and collect their counts
+    for user in users:
+        upvote_counts.append(user.count_upvotes())
+        downvote_counts.append(user.count_downvotes())
+
+    # Calculate the median
+    med_upvotes = statistics.median(upvote_counts)
+    med_downvotes = statistics.median(downvote_counts)
+
+    # Print results
+    print(f"Median upvotes per user: {med_upvotes}")
+    print(f"Median downvotes per user: {med_downvotes}")
+
+    from scipy.stats import skew, kurtosis
+    # Compute skewness and kurtosis
+    skewness_value_up = skew(upvote_counts)
+    skewness_value_dn = skew(downvote_counts)
+
+    kurtosis_value_up = kurtosis(upvote_counts)
+    kurtosis_value_dn = kurtosis(downvote_counts)
+    print(f'Skewness: {skewness_value_up:.2f}, Kurtosis: {kurtosis_value_up:.2f}')
+    print(f"Skewness: {skewness_value_dn:.2f}, Kurtosis: {kurtosis_value_dn:.2f}")
