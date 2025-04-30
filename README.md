@@ -1,7 +1,7 @@
 # Recommender Systems for scientific Documents
 
 ## Dataset Description
-Our project is based on [Scholar Inbox](https://scholar-inbox.com), a recommender system for scientific papers run here at the University of Tübingen. 
+Our project is based on [Scholar Inbox](https://scholar-inbox.com), a recommender system for scientific papers maintained here at the University of Tübingen. 
 Their dataset was made publicly available under https://github.com/avg-dev/scholar_inbox_datasets a few weeks ago. You can find these three files in the folder `data` of our repository, but we mainly worked with `rated_papers.csv` and `implicit_interactions.csv` (described below).
 
 ### Explicit User Ratings 
@@ -14,7 +14,7 @@ On Scholar Inbox, users can register to receive recommendations of recently publ
 - **time:** Timestamp of when the voting was done. The system did not track this data right away so many of the older entries have a null-value here.
 
 ### Implicit User Interactions
-Very similar to the previous file but `implicit_interactions.csv` missing the column **rating** as it refers to implicit feedback: interactions like reading a paper or sharing it without explicitly voting on it ($N=556K$):
+Very similar to the previous file but `implicit_interactions.csv` misses the column **rating** as it refers to implicit feedback: interactions like reading a paper or sharing it without explicitly voting on it ($N=556K$):
 | arxiv_id | user_id | time |
 |---|---|---|
 
