@@ -1,5 +1,7 @@
 # Recommender Systems for scientific Documents
 
+Install the conda environment via the file `environment.yml` if necessary (but they are just basic libraries).
+
 ### Group Members:
 Glenn Angrabeit - 5681972,
 Niclas Linder - 5424597,
