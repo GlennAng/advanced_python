@@ -1,8 +1,9 @@
 # Recommender Systems for scientific Documents
 
 ### Group Members:
-Glenn Angrabeit - 5681972
-Niclas Linder - 5424597
+Glenn Angrabeit - 5681972,
+Niclas Linder - 5424597,
+Aspasia Charalampopoulou - 7016190
 
 ## 1. Dataset Description
 Our project is based on [Scholar Inbox](https://scholar-inbox.com), a recommender system for scientific papers run here at the University of Tübingen. 
