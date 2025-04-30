@@ -1,5 +1,8 @@
 # Recommender Systems for scientific Documents
 
+### Group Members:
+Glenn Angrabeit - 5681972
+
 ## 1. Dataset Description
 Our project is based on [Scholar Inbox](https://scholar-inbox.com), a recommender system for scientific papers run here at the University of Tübingen. 
 Their dataset was made publicly available under https://github.com/avg-dev/scholar_inbox_datasets a few weeks ago. You can find these three files in the folder `data` of our repository, but we mainly worked with `rated_papers.csv` and `implicit_interactions.csv` (described below).
