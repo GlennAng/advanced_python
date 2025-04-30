@@ -1,10 +1,9 @@
-from load_dataset import load_dataset
-import numpy as np
-import pandas as pd
-pd.set_option('display.max_rows', None)  # Show all rows when displaying DataFrames
-import logging
-import os
 from collections import defaultdict
+from load_dataset import load_dataset
+import logging
+import pandas as pd
+import os
+pd.set_option('display.max_rows', None)  # Show all rows when displaying DataFrames
 
 #Create a class for the users with attribute of users_id #build-in function to create a class named User
 class User:
@@ -37,32 +36,33 @@ class User:
         return (f"User(user_id={self.user_id}, upvotes={self.count_upvotes()}, "
                 f"downvotes={self.count_downvotes()}, first_interaction={self.first_interaction})")
 
-
-def transform_dates(rated_papers : pd.DataFrame) -> None:
+def transform_dates(rated_papers : pd.DataFrame, logger) -> pd.DataFrame:
     """
     Transform the date column to a more readable format.
     """
+    # count how many dates are missing before we have done any processing
     n_missing_original = rated_papers["time"].isna().sum()
     logger.info(f"Number of missing Dates before filling: {n_missing_original}.")  # 8783
-    # Convert from string to datetime
-    # First format: without microseconds
-    result = pd.to_datetime(rated_papers["time"], format="%Y-%m-%d %H:%M:%S", errors="coerce")
-    # Identify the rows for which it failed even through the date is not missing
-    mask = result.isna() & ~rated_papers["time"].isna()  # the tilde means boolean NOT (the rows where null after conversion but not before)
-    
-    # Log invalid date entries
-    invalid_dates = rated_papers.loc[mask, "time"]
-    if not invalid_dates.empty:
-        logger.warning(f"Invalid date entries found: {invalid_dates.tolist()}")
-    
-    
-    # Second format: with microseconds (in those problematic cases)
-    result.loc[mask] = pd.to_datetime(rated_papers.loc[mask, "time"], format="%Y-%m-%d %H:%M:%S.%f", errors="coerce")
+
+    # Convert from string to datetime (first format: without microseconds)
+    # errors = "coerce" means that if the conversion fails, the value will be set to NaT (Not a Time)
+    result = pd.to_datetime(rated_papers["time"], format = "%Y-%m-%d %H:%M:%S", errors = "coerce")
+    # The previous step fails for dates in the wrong format => they are set to NaT (Not a Time) even though the date is not missing in the original dataset
+    # => we need to identify those rows (where the ampersand means boolean AND while tilde means boolean NOT)
+    mask = result.isna() & ~rated_papers["time"].isna()
+    # Log the number of such entries
+    logger.info(f"Number of Dates in wrong format without microseconds: {mask.sum()}.")
+
+    # Convert from string to datetime (second format for the problematic cases: with microseconds)
+    # We use the mask to select only the problematic rows and convert them to datetime
+    result.loc[mask] = pd.to_datetime(rated_papers.loc[mask, "time"], format = "%Y-%m-%d %H:%M:%S.%f", errors = "coerce")
     rated_papers["time"] = result
     n_missing_after_conversion = rated_papers["time"].isna().sum()
     logger.info(f"Number of missing Dates after conversion to date: {n_missing_after_conversion}.")  # 8783 (exactly the same as before)
+    assert n_missing_after_conversion == n_missing_original, "The number of missing dates should not change after conversion to datetime."
+    return rated_papers
 
-def fill_missing_dates(rated_papers : pd.DataFrame, global_min_date : pd.Timestamp) -> None:
+def fill_missing_dates(rated_papers : pd.DataFrame, global_min_date : pd.Timestamp, logger) -> pd.DataFrame:
     """
     Fill the missing dates with the global min date.
     """
@@ -70,10 +70,12 @@ def fill_missing_dates(rated_papers : pd.DataFrame, global_min_date : pd.Timesta
     mask = rated_papers["time"].isna()
     rated_papers.loc[mask, "time"] = global_min_date
     n_missing_after_fill = rated_papers["time"].isna().sum()
-    logger.info(f"Min Date after Filling: {rated_papers['time'].min()}.")  # 2021-07-06 08:27:24 and 8783
+    assert n_missing_after_fill == 0, "There should be no missing dates after filling."
     logger.info(f"Number of missing Dates after filling: {n_missing_after_fill}.")  # 0
+    logger.info(f"Min Date after Filling: {rated_papers['time'].min()}.")  # 2021-07-06 08:27:24 and 8783
+    return rated_papers
 
-def get_session_ids(rated_papers : pd.DataFrame, global_min_date : pd.Timestamp, time_threshold_seconds : int = 3600) -> None:
+def get_session_ids(rated_papers : pd.DataFrame, global_min_date : pd.Timestamp, time_threshold_seconds : int, logger) -> pd.DataFrame:
     """
     Group the ratings into sessions based on the time difference between consecutive ratings.
     """
@@ -83,16 +85,17 @@ def get_session_ids(rated_papers : pd.DataFrame, global_min_date : pd.Timestamp,
     rated_papers.sort_values(by = ["user_id", "time"], inplace = True)
     # Calculate the time difference between consecutive ratings
     time_diff = rated_papers.groupby("user_id")["time"].diff().dt.total_seconds()
-    # confirm that the first value for each user is NaN
+    # Confirm that the first value for each user is NaN
     logger.info(f"Number of NaN values in time_diff: {time_diff.isna().sum()}.")
+    # Create a new session if the time difference is greater than the threshold or if it's NaN
     new_session_condition = (time_diff > time_threshold_seconds) | (time_diff.isna())
     rated_papers['session_id'] = new_session_condition.groupby(rated_papers['user_id']).cumsum()
-    # Session IDs start at 1 but we set the ID of the global min date to 0
+    # Session IDs for all users start at 1 but we set the ID of the global min date to 0 (helps to remember that these were originally null)
     rated_papers.loc[rated_papers["time"] == global_min_date, "session_id"] = 0
-    # confirm that the number of session ID 0 is equal to the number of null date earlier
+    # Confirm that the number of session ID 0 is equal to the number of null date earlier
     n_zero_session_id = (rated_papers["time"] == global_min_date).sum()
     logger.info(f"Number of session_id 0: {n_zero_session_id}.")  # 8783
-
+    return rated_papers
 
 def get_history_for_session(rated_papers : pd.DataFrame, user_id : int, session_id : int) -> str:
     """
@@ -110,8 +113,7 @@ def get_history_for_session(rated_papers : pd.DataFrame, user_id : int, session_
     history = " ".join(history_items)
     return history
 
-
-def create_sessions_df(rated_papers: pd.DataFrame) -> pd.DataFrame:
+def create_sessions_df(rated_papers: pd.DataFrame, logger) -> pd.DataFrame:
     """Create a DataFrame similar to the MIND dataset"""
     # Create a new DataFrame with the columns user_id, session_id and the beginning timestamp of the session (the minimum time)
     sessions_df = rated_papers.groupby(['user_id', 'session_id']).agg({'time': 'min'}).reset_index()
@@ -131,64 +133,58 @@ def create_sessions_df(rated_papers: pd.DataFrame) -> pd.DataFrame:
 
     sessions_df['history'] = sessions_df.apply(lambda row: get_history_for_session(rated_papers, row['user_id'], row['session_id']), axis=1)
     logger.info(f"Sessions DataFrame Sample for User 0 with History:\n{sessions_df[sessions_df['user_id'] == 0]}")
-    # confirm that the number of NaN history is equal to the number of users
+    # Confirm that the number of NaN history is equal to the number of users
     logger.info(f"Number of NaN history: {sessions_df['history'].isna().sum()}.")  # 8783
-    # Save as CSV
-    sessions_df.to_csv("data/sessions.csv", index = False)
     return sessions_df
 
-def process_sessions(rated_papers : pd.DataFrame = None, logger = None) -> pd.DataFrame:
-    # If the cache already exists (data has been computed before), load it
-    # Otherwise, process the data from scratch
-    if os.path.exists("cached_sessions_df.pkl"):
-        if logger is not None:
-            logger.info("Loading sessions_df from cache...")
-        sessions_df = pd.read_pickle("cached_sessions_df.pkl")
+def process_sessions(rated_papers : pd.DataFrame, logger) -> pd.DataFrame:
+    logger.info("Processing sessions...")
+    # get a list of all user_ids without duplicates
+    user_ids = rated_papers["user_id"].unique().tolist()
+    n_ratings, n_users = rated_papers.shape[0], len(user_ids)
+    logger.info(f"Number of Ratings: {n_ratings}, Number of Users: {n_users}.")
+
+    rated_papers = transform_dates(rated_papers, logger)
+    global_min_date = rated_papers["time"].min() - pd.DateOffset(years = 1)
+    logger.info(f"Global Min Date across all Users lowered by 1 year: {global_min_date}.")
+
+    rated_papers = fill_missing_dates(rated_papers, global_min_date, logger)
+    rated_papers = get_session_ids(rated_papers, global_min_date, 3600, logger)
+
+    sessions_df = create_sessions_df(rated_papers, logger)
+    sessions_df.to_pickle("data/cached_sessions_df.pkl")
+    logger.info("Cached sessions_df saved.")
+
+def load_sessions_df() -> pd.DataFrame:
+    if os.path.exists("data/cached_sessions_df.pkl"):
+        sessions_df = pd.read_pickle("data/cached_sessions_df.pkl")
     else:
-        if logger is not None:
-            logger.info("Cache not found. Processing from scratch...")
-        rated_papers = load_dataset("rated_papers.csv")
-        if logger is not None:
-            logger.info(f"Dataset sample:\n{rated_papers.head()}")
-
-        user_ids = rated_papers["user_id"].unique().tolist()
-        n_ratings, n_users = rated_papers.shape[0], len(user_ids)
-        if logger is not None:
-            logger.info(f"Number of Ratings: {n_ratings}, Number of Users: {n_users}.")
-
-        transform_dates(rated_papers)
-        
-        global_min_date = rated_papers["time"].min() - pd.DateOffset(years=1)
-        if logger is not None:
-            logger.info(f"Global Min Date across all Users lowered by 1 year: {global_min_date}.")
-
-        fill_missing_dates(rated_papers, global_min_date)
-
-        get_session_ids(rated_papers, global_min_date)
-
-        sessions_df = create_sessions_df(rated_papers)
-        sessions_df.to_pickle("cached_sessions_df.pkl")
-        if logger is not None:
-            logger.info("Cached sessions_df saved.")
+        if os.path.exists("cached_sessions_df.pkl"):
+            sessions_df = pd.read_pickle("cached_sessions_df.pkl")
+        else:
+            raise FileNotFoundError("No cached sessions_df found. Please run the process_users.py file first.")
     return sessions_df
 
-def process_first_interactions(sessions_df : pd.DataFrame, rated_papers : pd.DataFrame = None, logger = None) -> dict:
-    if os.path.exists("cached_first_interactions.pkl"):
-        if logger is not None:
-            logger.info("Loading first_interactions from cache...")
-        first_interactions = pd.read_pickle("cached_first_interactions.pkl")
+def process_first_interactions(sessions_df : pd.DataFrame, rated_papers : pd.DataFrame, logger) -> dict:
+    logger.info("Processing first interactions...")
+    # Ensure 'time' is properly converted to datetime before calculating first interactions
+    rated_papers["time"] = pd.to_datetime(rated_papers["time"], errors="coerce")
+    # Drop rows where 'time' could not be converted (e.g., NaT values)
+    rated_papers = rated_papers.dropna(subset=["time"])
+    first_interactions = rated_papers.groupby('user_id')['time'].min().to_dict()
+    # Cache first_interactions
+    pd.to_pickle(first_interactions, "data/cached_first_interactions.pkl")
+    logger.info("Cached first_interactions saved.")
+    return first_interactions
+
+def load_first_interactions() -> dict:
+    if os.path.exists("data/cached_first_interactions.pkl"):
+        first_interactions = pd.read_pickle("data/cached_first_interactions.pkl")
     else:
-        if logger is not None:
-            logger.info("Calculating first_interactions...")
-        # Ensure 'time' is properly converted to datetime before calculating first interactions
-        rated_papers["time"] = pd.to_datetime(rated_papers["time"], errors="coerce")
-        # Drop rows where 'time' could not be converted (e.g., NaT values)
-        rated_papers = rated_papers.dropna(subset=["time"])
-        first_interactions = rated_papers.groupby('user_id')['time'].min().to_dict()
-        # Cache first_interactions
-        pd.to_pickle(first_interactions, "cached_first_interactions.pkl")
-        if logger is not None:
-            logger.info("Cached first_interactions saved.")
+        if os.path.exists("cached_first_interactions.pkl"):
+            first_interactions = pd.read_pickle("cached_first_interactions.pkl")
+        else:
+            raise FileNotFoundError("No cached first_interactions found. Please run the process_users.py file first.")
     return first_interactions
 
 def process_users(sessions_df : pd.DataFrame, first_interactions : dict) -> tuple:
@@ -216,107 +212,21 @@ def process_users(sessions_df : pd.DataFrame, first_interactions : dict) -> tupl
     users_ids_to_idxs = {user.user_id: idx for idx, user in enumerate(users)}
     return users, users_ids_to_idxs
 
-def print_user_info(users : list, users_ids_to_idxs : dict) -> None:
-    """
-    Print the information of a user given their user ID.
-    """
-    while True:
-        try:
-            u = int(input("Enter the user ID: "))  # Getting user input
-            # Check if input is valid
-            if u in users_ids_to_idxs:
-                # Length of user list
-                print(f"Length of users list: {len(users)}")
-                print(users[users_ids_to_idxs[u]])
-
-                # Show positive papers
-                print(f"Positive papers of the user: {users[users_ids_to_idxs[u]].positive_papers}")
-
-                # Show negative papers
-                print(f"Negative papers of the user: {users[users_ids_to_idxs[u]].negative_papers}")
-
-                # Number of positive upvotes
-                print(f"Number of papers the user upvoted: {users[users_ids_to_idxs[u]].count_upvotes()}")
-
-                # First date of interaction
-                print(f"User {u} first interacted on: {users[users_ids_to_idxs[u]].first_interaction}")
-                
-                # Break if everything worked
-                break
-            else:
-                print("Please enter a valid ID within the range.")
-        except ValueError:
-            print("Please enter a valid integer for the user ID.")
-
-
-# Main function to process the data
+def load_users() -> tuple:
+    sessions_df = load_sessions_df()
+    first_interactions = load_first_interactions()
+    users, users_ids_to_idxs = process_users(sessions_df, first_interactions)
+    return users, users_ids_to_idxs
+    
 if __name__ == "__main__":
-    # Configure logging
-    logging.basicConfig(filename = 'data_processing.log', filemode = 'w', format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s', level = logging.INFO)
-    logger = logging.getLogger('paper_ratings_processor')
-    logger.info("Starting data processing...")
+    logging.basicConfig(filename = "user_processing.log", filemode = "w", format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s", level = logging.INFO)
+    logger = logging.getLogger("paper_ratings_processor")
+    logger.info("Starting user processing...")
 
     rated_papers = load_dataset("rated_papers.csv")
+    logger.info(f"Loaded dataset with {rated_papers.shape[0]} rows and {rated_papers.shape[1]} columns.")
+    logger.info(f"Dataset sample:\n{rated_papers.head()}")
+
     sessions_df = process_sessions(rated_papers, logger)
     first_interactions = process_first_interactions(sessions_df, rated_papers, logger)
-    users, users_ids_to_idxs = process_users(sessions_df, first_interactions)
-    logger.info("Data processing completed.")
-    print_user_info(users, users_ids_to_idxs)
-
-    import statistics
-        #Initialize counters
-    upvotes_tot = 0
-    downvotes_tot = 0
-    users_num = len(users)
-
-    # Loop through each user and sum up upvotes and downvotes
-    for user in users: 
-        upvotes_tot += user.count_upvotes()
-        downvotes_tot += user.count_downvotes()
-
-    # Compute the averages (mean)
-    mean_upvotes = upvotes_tot / users_num
-    mean_downvotes = downvotes_tot / users_num
-
-    # Print the results
-    print(f"Average upvotes per user: {mean_upvotes:.2f}")
-    print(f"Average downvotes per user: {mean_downvotes:.2f}")
-        
-    #Median
-    # Create lists to hold all upvote/downvote 
-    #counts
-    upvote_counts = []
-    downvote_counts = []
-
-    # Loop through each user and collect their counts
-    for user in users:
-        upvote_counts.append(user.count_upvotes())
-        downvote_counts.append(user.count_downvotes())
-
-    # Calculate the median
-    med_upvotes = statistics.median(upvote_counts)
-    med_downvotes = statistics.median(downvote_counts)
-
-    # Print results
-    print(f"Median upvotes per user: {med_upvotes}")
-    print(f"Median downvotes per user: {med_downvotes}")
-
-    from scipy.stats import skew, kurtosis
-    # Compute skewness and kurtosis
-    skewness_value_up = skew(upvote_counts)
-    skewness_value_dn = skew(downvote_counts)
-
-    kurtosis_value_up = kurtosis(upvote_counts)
-    kurtosis_value_dn = kurtosis(downvote_counts)
-    print(f'Skewness of upvotes: {skewness_value_up:.2f}, Kurtosis of upvotes: {kurtosis_value_up:.2f}')
-    print(f"Skewness of downvotes: {skewness_value_dn:.2f}, Kurtosis of downvotes: {kurtosis_value_dn:.2f}")
-    
-    
-    
-    min_values_up = min(upvote_counts)
-    max_values_up = max(upvote_counts) 
-    min_values_dn = min(downvote_counts) 
-    max_values_dn = max(downvote_counts)
-        
-    print(f"The minimum of upvotes for this user is: {min_values_up}, the maximum of upvotes for this user is {max_values_up}")
-    print(f"The minimum of downvotes for this user is: {min_values_dn}, the maximum  of upvotes for this user is {max_values_dn}")
+    logger.info("User processing completed.")
