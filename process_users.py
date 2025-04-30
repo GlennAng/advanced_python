@@ -308,5 +308,15 @@ if __name__ == "__main__":
 
     kurtosis_value_up = kurtosis(upvote_counts)
     kurtosis_value_dn = kurtosis(downvote_counts)
-    print(f'Skewness: {skewness_value_up:.2f}, Kurtosis: {kurtosis_value_up:.2f}')
-    print(f"Skewness: {skewness_value_dn:.2f}, Kurtosis: {kurtosis_value_dn:.2f}")
+    print(f'Skewness of upvotes: {skewness_value_up:.2f}, Kurtosis of upvotes: {kurtosis_value_up:.2f}')
+    print(f"Skewness of downvotes: {skewness_value_dn:.2f}, Kurtosis of downvotes: {kurtosis_value_dn:.2f}")
+    
+    
+    
+    min_values_up = min(upvote_counts)
+    max_values_up = max(upvote_counts) 
+    min_values_dn = min(downvote_counts) 
+    max_values_dn = max(downvote_counts)
+        
+    print(f"The minimum of upvotes for this user is: {min_values_up}, the maximum of upvotes for this user is {max_values_up}")
+    print(f"The minimum of downvotes for this user is: {min_values_dn}, the maximum  of upvotes for this user is {max_values_dn}")
