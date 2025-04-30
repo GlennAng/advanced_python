@@ -6,7 +6,7 @@ import pickle
 
 def concatenate_datasets(rated_papers : pd.DataFrame, implicit_interactions : pd.DataFrame) -> pd.DataFrame:
     """
-    Concatenate the 2 dataframes(stack them on top of each other horizontally).
+    Concatenate the 2 dataframes rated_papers and implicit_interactions (stack them on top of each other horizontally).
     Since implicit_interactions has no rating column, we first construct it and fill with 0
     (so we have -1 for negative rating, +1 for positive rating and 0 for implicit interaction like just reading the paper).
     """
@@ -28,6 +28,7 @@ def get_arxiv_categories(unique_arxiv_ids : list, batch_size : int = 500, max_tr
     Get the arxiv categories for the unique arxiv ids using the arxiv API.
     Returns a list with the arxiv categories for each arxiv id.
     To avoid sending too many requests to the arxiv API, we send the requests in batches of limited size.
+    Should there still be a problem with the request, we retry it up to max_tries times.
     """
     n_arxiv_ids = len(unique_arxiv_ids)
     arxiv_categories = []
@@ -37,7 +38,7 @@ def get_arxiv_categories(unique_arxiv_ids : list, batch_size : int = 500, max_tr
     for i in range(0, n_arxiv_ids, batch_size):
         batch = unique_arxiv_ids[i: i + batch_size]
         n_tries = 0
-        # the request sometimes crash so we retry it up to max_tries times
+        # the request sometimes crashes so we retry it up to max_tries times
         while n_tries < max_tries:
             try:
                 search = arxiv.Search(id_list = batch)
@@ -45,7 +46,7 @@ def get_arxiv_categories(unique_arxiv_ids : list, batch_size : int = 500, max_tr
                 # append the categories to the list if request succeeds
                 arxiv_categories.extend([paper.primary_category for paper in results])
                 print(f"Processed samples: {i + batch_size}/{n_arxiv_ids}")
-                # break the loop if the request succeeds so we don't retry it
+                # break the inner while-loop if the request succeeds so we don't retry it
                 break
             except arxiv.HTTPError as e:
                 # raise number of tries if the request fails

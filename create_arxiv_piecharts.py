@@ -1,12 +1,22 @@
-from load_dataset import load_dataset
+import matplotlib.pyplot as plt
+import numpy as np
+import os
 import pandas as pd
 import pickle
-import matplotlib.pyplot as plt
+
+def load_arxiv_dataset_scholar_inbox() -> tuple:
+    # load the two lists containing the paper ids and their arxiv categories (data for Scholar Inbox)
+    with open('data/arxiv_ids.pkl', 'rb') as f:
+        arxiv_ids = pickle.load(f)
+    with open('data/arxiv_categories.pkl', 'rb') as f:
+        arxiv_categories = pickle.load(f)
+    assert len(arxiv_ids) == len(arxiv_categories), "arxiv_ids and arxiv_categories must have the same length"
+    return arxiv_ids, arxiv_categories
 
 def convert_arxiv_category(category : str) -> str:
     """
     Convert the arxiv category by only looking at the main category. For example, from cs.AI to 'Computer Science'
-    The full taxonomy can be found on https://arxiv.org/category_taxonomy
+    The full taxonomy can be found on https://arxiv.org/category_taxonomy.
     """
     category = category.lower() # make lower case
     category = category.split(" ")[0] # if there are multiple categories (listed with spaces between them), take the first one
@@ -53,77 +63,118 @@ def get_arxiv_distribution(df : pd.DataFrame) -> pd.Series:
     distribution = distribution / distribution.sum() # normalize the distribution
     return distribution
 
-if __name__ == '__main__':
-    # load the two lists containing the paper ids and their arxiv categories (must have same length)
-    with open('data/arxiv_ids.pkl', 'rb') as f:
-        arxiv_ids = pickle.load(f)
-    with open('data/arxiv_categories.pkl', 'rb') as f:
-        arxiv_categories = pickle.load(f)
-    assert len(arxiv_ids) == len(arxiv_categories), "arxiv_ids and arxiv_categories should have the same length"
-    arxiv_categories = convert_arxiv_categories(arxiv_categories)
-    df = create_id_category_dataframe(arxiv_ids, arxiv_categories)
-    print(df.head())
-    n_papers = df.shape[0]
-    print(f"Number of papers: {n_papers}")
-    arxiv_distribution = get_arxiv_distribution(df)
-    print(arxiv_distribution)
+def plot_piecharts(distribution_1: pd.Series, distribution_2: pd.Series, title_1: str, title_2: str) -> None:
+    """
+    Plot two pie charts side by side for the given distributions.
+    """
+    # Create a figure with two subplots (1 row, 2 columns)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    categories = distribution_1.index
+    # Reorder the second distribution to match the first one
+    distribution_2 = distribution_2.reindex(categories)
+    
+    # Create colors for the pie chart
+    colors = plt.cm.tab20.colors
+    radius = 3.0
+    
+    # Plot both pie charts with the same colors but not displaying percentages
+    wedges1, _ = ax1.pie(distribution_1, labels = None, startangle = 140, colors = colors, radius = radius)
+    ax2.pie(distribution_2, labels = None, startangle = 140, colors = colors, radius = radius)
+    
+    # Set titles
+    ax1.set_title(title_1, fontweight ='bold', fontsize = 14)
+    ax2.set_title(title_2, fontweight = 'bold', fontsize = 14)
+    
+    # Set equal aspect ratio to ensure pie chart is circular
+    ax1.axis('equal')
+    ax2.axis('equal')
 
-    # load the kaggle dataset (already preprocessed to be much smaller so it only)
-    df_kaggle = pd.read_csv('data/arxiv_categories_kaggle.csv')
-    df_kaggle.columns = ['arxiv_id', 'category']
-    # apply the same conversion to the kaggle dataset
-    print(f"Number of papers in kaggle dataset: {df_kaggle.shape[0]}")
-    df_kaggle['category'] = df_kaggle['category'].apply(convert_arxiv_category)
-    df_kaggle_distribution = get_arxiv_distribution(df_kaggle)
-    print(df_kaggle_distribution)
-
- 
-def plot_pie_chart(distribution: pd.Series, title: str):
-    plt.figure(figsize=(8, 8))
-    plt.pie(distribution, labels=distribution.index, autopct='%1.1f%%', startangle=140)
-    plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
-    plt.title(title)
+    ax1.legend(wedges1, categories, loc = 'upper center', bbox_to_anchor = (1.1, 0.05), ncol = 3, fontsize = 13) # only need 1 legend
+    plt.savefig('plots/piecharts.pdf', dpi = 300, bbox_inches = 'tight')
     plt.show()
 
-# Plot distribution of the original dataset
-plot_pie_chart(arxiv_distribution, "arXiv Category Distribution (Original Dataset)")
+def plot_vertical_mirrorchart(distribution_1 : pd.Series, distribution_2 : pd.Series, title : str, title_1 : str, title_2 : str) -> None:
+    # multiply by 100 to get percentage
+    distribution_1 = distribution_1 * 100
+    distribution_2 = distribution_2 * 100
 
-# Plot distribution of the Kaggle dataset
-plot_pie_chart(df_kaggle_distribution, "arXiv Category Distribution (Kaggle Dataset)")
+    fig, ax = plt.subplots(figsize = (12, 8))
+    categories = distribution_1.index
+    # Reorder the second distribution to match the first one
+    distribution_2 = distribution_2.reindex(categories)
 
-#Create Classes
-class User:  #build-in function to create a class named User
-    def __init__(self, arxiv_id):
-        self.arxiv_id = arxiv_id
-#Constructor that creates a new user object 
-#that saves the arxiv_id value into the object
+    # Set positions for the bars
+    x_pos = np.arange(len(categories))
+    bar_width = 0.35
 
+    # Plot the bars - upward for distribution_1, downward for distribution_2
+    bars1 = ax.bar(x_pos - bar_width/2, distribution_1.values, width = bar_width, color = "steelblue", label = title_1)
+    bars2 = ax.bar(x_pos + bar_width/2, -distribution_2.values, width = bar_width, color = "firebrick", label = title_2)
 
-user_ids = df_kaggle['arxiv_id']
-#Grabs the arxiv_id column from the dataframe 
+    # Add percentage labels on top of the bars
+    for i, bar in enumerate(bars1):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2, height + 0.5, f"{distribution_1.values[i]:.2f}", ha = 'center', va = 'bottom', fontsize = 9, fontweight = 'bold')
+    for i, bar in enumerate(bars2):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2, height - 0.5, f"{distribution_2.values[i]:.2f}", ha = 'center', va = 'top', fontsize = 9, fontweight = 'bold')
 
+    # Set x-ticks in the middle with appropriate labels
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(categories, rotation = 45, ha = 'right')
+    # Set y-axis labels
+    ax.set_ylabel('Share (in %)', fontsize = 12)
+    # Create custom y-ticks that show absolute values
+    max_value = 75
+    y_ticks = np.linspace(0, max_value, 4)
+    ax.set_yticks(list(-y_ticks[1:]) + list(y_ticks))
+    ax.set_yticklabels([str(abs(y)) for y in ax.get_yticks()])
+    
+    # Add a horizontal line at y=0
+    ax.axhline(y = 0, color = 'black', linestyle = '-', alpha = 0.3)
 
-#users = [User(arxiv_id) for arxiv_id in user_ids]
-#Create a User object for every arxiv_id in user_ids and
-#collect them into a list called users.
-
-
- 
+    # Remove spines
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
+    handles = [bars1[0], bars2[0]]  # Use only the first bar of each type
+    labels = [title_1, title_2]
+    ax.legend(handles, labels, loc = 'best')
         
+    # Add title
+    plt.title(title, fontweight = 'bold', fontsize = 14)
+    
+    plt.savefig('plots/mirrorchart.pdf', dpi = 300, bbox_inches = 'tight')
+    # Adjust layout
+    plt.tight_layout()
+    plt.show()
 
+def count_to_str(count: int) -> str:
+    """
+    Convert a count to a string with commas after every three digits.
+    """
+    return f"{count:,}"
 
+if __name__ == '__main__':
 
-   
+    # Load the Scholar Inbox dataset
+    arxiv_ids, arxiv_categories = load_arxiv_dataset_scholar_inbox()
+    arxiv_categories = convert_arxiv_categories(arxiv_categories) # convert the categories to their main category
+    arxiv_df = create_id_category_dataframe(arxiv_ids, arxiv_categories) # combine the two lists into a dataframe
+    n_papers = len(arxiv_df) # get the number of papers
+    arxiv_distribution = get_arxiv_distribution(arxiv_df) # get the distribution of the categories
 
+    # load the Kaggle dataset (already preprocessed to be much smaller so it only)
+    arxiv_df_kaggle = pd.read_csv('data/arxiv_categories_kaggle.csv', dtype = {"arxiv_id": str, "categories": str}) # load the dataset
+    arxiv_df_kaggle.columns = ['arxiv_id', 'category'] # rename the columns from 'categories' to 'category'
+    arxiv_df_kaggle['category'] = arxiv_df_kaggle['category'].apply(convert_arxiv_category) # convert the categories to their main category
+    n_papers_kaggle = len(arxiv_df_kaggle) # get the number of papers
+    arxiv_distribution_kaggle = get_arxiv_distribution(arxiv_df_kaggle) # get the distribution of the categories
 
-
-
-
-
-
-
-
-
-
-
-
+    if not os.path.exists('plots'):
+        os.makedirs('plots')
+    plot_piecharts(arxiv_distribution, arxiv_distribution_kaggle, 
+                    title_1 = f"Scholar Inbox Dataset (N = {count_to_str(n_papers)})", title_2 = f"Kaggle Dataset (N = {count_to_str(n_papers_kaggle)})")
+    plot_vertical_mirrorchart(arxiv_distribution, arxiv_distribution_kaggle,
+                    title = "Distribution of Arxiv Categories in the Scholar Inbox and Kaggle Datasets",
+                    title_1 = f"Scholar Inbox Dataset (N = {count_to_str(n_papers)})", title_2 = f"Kaggle Dataset (N = {count_to_str(n_papers_kaggle)})")
